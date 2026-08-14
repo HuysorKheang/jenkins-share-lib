@@ -31,6 +31,13 @@ def scanSonarqube(String projectKey, String projectPath) {
             dir(projectPath) {
 
                 sh """
+                    set -e
+
+                    echo "======================================"
+                    echo "SonarQube Scan"
+                    echo "Project: ${projectKey}"
+                    echo "======================================"
+
                     ${scannerHome}/bin/sonar-scanner \
                         -Dsonar.projectKey=${projectKey} \
                         -Dsonar.host.url=${SONAR_HOST} \
@@ -66,16 +73,24 @@ def buildImage(
         String buildContext
 ) {
 
-    sh """
-        set -e
+    dir(buildContext) {
 
-        echo "Building Docker image: ${imageName}"
+        sh """
+            set -e
 
-        docker build \
-            -f ${dockerfile} \
-            -t ${imageName} \
-            ${buildContext}
-    """
+            echo "======================================"
+            echo "Docker Build"
+            echo "Image: ${imageName}"
+            echo "Dockerfile: ${dockerfile}"
+            echo "Context: ${buildContext}"
+            echo "======================================"
+
+            docker build \
+                -f ${dockerfile} \
+                -t ${imageName} \
+                .
+        """
+    }
 }
 
 
@@ -92,17 +107,16 @@ def pushImage(String imageName) {
         sh """
             set -e
 
-            echo "Logging in to Docker registry..."
+            echo "======================================"
+            echo "Docker Push"
+            echo "Image: ${imageName}"
+            echo "======================================"
 
             echo "\${DOCKER_PASS}" | docker login \
                 -u "\${DOCKER_USER}" \
                 --password-stdin
 
-            echo "Pushing image: ${imageName}"
-
             docker push ${imageName}
-
-            echo "Logging out..."
 
             docker logout || true
         """
@@ -117,17 +131,20 @@ def deployContainer(
 ) {
 
     if (!config.port) {
-        error "Port mapping is required for container ${containerName}"
+        error "Port mapping is required for ${containerName}"
     }
 
     sh """
         set -e
 
-        echo "Stopping old container..."
+        echo "======================================"
+        echo "Deploying Container"
+        echo "Container: ${containerName}"
+        echo "Image: ${image}"
+        echo "Port: ${config.port}"
+        echo "======================================"
 
         docker rm -f ${containerName} || true
-
-        echo "Starting container..."
 
         docker run -d \
             --name ${containerName} \
@@ -135,7 +152,7 @@ def deployContainer(
             -p ${config.port} \
             ${image}
 
-        echo "Container started: ${containerName}"
+        echo "Container deployed successfully."
     """
 }
 
@@ -160,7 +177,9 @@ def sendTelegram(String message) {
             sh '''
                 set -e
 
+                echo "======================================"
                 echo "Sending Telegram notification..."
+                echo "======================================"
 
                 curl -sS \
                     -o /dev/null \
