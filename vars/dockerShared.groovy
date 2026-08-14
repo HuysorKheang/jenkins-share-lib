@@ -79,12 +79,26 @@ def sendTelegram(String message) {
                 )
         ]) {
 
-            sh """
-                curl -sS -X POST \\
-                    "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \\
-                    --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \\
-                    --data-urlencode "text=${message}"
-            """
+            withEnv([
+                    "TELEGRAM_MESSAGE=${message}"
+            ]) {
+
+                sh '''
+                    set -e
+
+                    echo "Sending Telegram notification..."
+
+                    curl -sS \
+                        -o /dev/null \
+                        -w "HTTP Status: %{http_code}\\n" \
+                        -X POST \
+                        "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                        --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+                        --data-urlencode "text=${TELEGRAM_MESSAGE}"
+
+                    echo "Telegram notification sent."
+                '''
+            }
         }
     }
 }
