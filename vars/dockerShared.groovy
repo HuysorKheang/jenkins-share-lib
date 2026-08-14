@@ -64,37 +64,27 @@ def deployContainer(String containerName, String imageName, String imageTag, Str
             ${imageName}:${imageTag}
     """
 }
-
 def sendTelegram(String message) {
 
-    withCredentials([
-            string(
-                    credentialsId: 'telegram-bot',
-                    variable: 'TELEGRAM_BOT_TOKEN'
-            ),
-            string(
-                    credentialsId: 'TELEGRAM_CHAT_ID',
-                    variable: 'TELEGRAM_CHAT_ID'
-            )
-    ]) {
+    node {
 
-        withEnv([
-                "TELEGRAM_MESSAGE=${message}"
+        withCredentials([
+                string(
+                        credentialsId: 'telegram-bot',
+                        variable: 'TELEGRAM_BOT_TOKEN'
+                ),
+                string(
+                        credentialsId: 'TELEGRAM_CHAT_ID',
+                        variable: 'TELEGRAM_CHAT_ID'
+                )
         ]) {
 
-            sh '''
-                set -e
-
-                echo "Sending Telegram notification..."
-
-                curl -sS -X POST \
-                    "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                    --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-                    --data-urlencode "text=${TELEGRAM_MESSAGE}"
-
-                echo ""
-                echo "Telegram notification sent."
-            '''
+            sh """
+                curl -sS -X POST \\
+                    "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \\
+                    --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \\
+                    --data-urlencode "text=${message}"
+            """
         }
     }
 }
