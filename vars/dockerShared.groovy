@@ -1,21 +1,182 @@
-def cloneRepo(String url, String branch, String credentialsId = null) {
+def cloneRepo(
+        String url,
+        String branch = 'main',
+        String credentialsId = null,
+        String directory = null
+) {
 
-    if (credentialsId) {
-        git(
-                branch: branch,
-                url: url,
-                credentialsId: credentialsId
-        )
-    } else {
-        git(
-                branch: branch,
-                url: url
-        )
+    def targetDirectory = directory ?: 'source'
+
+    dir(targetDirectory) {
+
+        if (credentialsId) {
+
+            git(
+                    branch: branch,
+                    url: url,
+                    credentialsId: credentialsId
+            )
+
+        } else {
+
+            git(
+                    branch: branch,
+                    url: url
+            )
+        }
     }
 }
 
 
-def scanSonarqube(String projectKey, String projectPath) {
+def buildReact(
+        String imageName,
+        String imageTag,
+        String projectDirectory
+) {
+
+    buildImageFromResource(
+            imageName,
+            imageTag,
+            'docker/reactjs.Dockerfile',
+            projectDirectory
+    )
+}
+
+
+def buildSpring(
+        String imageName,
+        String imageTag,
+        String projectDirectory
+) {
+
+    buildImageFromResource(
+            imageName,
+            imageTag,
+            'docker/spring.Dockerfile',
+            projectDirectory
+    )
+}
+
+
+def buildImageFromResource(
+        String imageName,
+        String imageTag,
+        String dockerfileResource,
+        String buildContext
+) {
+
+    def dockerfile = libraryResource(dockerfileResource)
+
+    def dockerfileName = dockerfileResource.tokenize('/').last()
+
+    dir(buildContext) {
+
+        writeFile(
+                file: dockerfileName,
+                text: dockerfile
+        )
+
+        try {
+
+            sh """
+                set -e
+
+                echo "======================================"
+                echo "Docker Build"
+                echo "Image: ${imageName}:${imageTag}"
+                echo "Dockerfile: ${dockerfileName}"
+                echo "Context: ${buildContext}"
+                echo "======================================"
+
+                docker build \
+                    -f ${dockerfileName} \
+                    -t ${imageName}:${imageTag} \
+                    .
+            """
+
+        } finally {
+
+            sh """
+                rm -f ${dockerfileName}
+            """
+        }
+    }
+}
+
+
+def pushImage(
+        String imageName,
+        String imageTag,
+        String registry = ''
+) {
+
+    def fullImage = registry
+            ? "${registry}/${imageName}:${imageTag}"
+            : "${imageName}:${imageTag}"
+
+    withCredentials([
+            usernamePassword(
+                    credentialsId: 'docker-registry-creds',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+            )
+    ]) {
+
+        sh """
+            set -e
+
+            echo "======================================"
+            echo "Docker Push"
+            echo "Image: ${fullImage}"
+            echo "======================================"
+
+            echo "\${DOCKER_PASS}" | docker login \
+                -u "\${DOCKER_USER}" \
+                --password-stdin
+
+            docker push ${fullImage}
+
+            docker logout || true
+        """
+    }
+}
+
+
+def deployContainer(
+        String containerName,
+        String image,
+        String hostPort,
+        String containerPort
+) {
+
+    sh """
+        set -e
+
+        echo "======================================"
+        echo "Deploy Container"
+        echo "Container: ${containerName}"
+        echo "Image: ${image}"
+        echo "Port: ${hostPort}:${containerPort}"
+        echo "======================================"
+
+        docker rm -f ${containerName} || true
+
+        docker run -d \
+            --name ${containerName} \
+            --restart unless-stopped \
+            -p ${hostPort}:${containerPort} \
+            ${image}
+
+        docker ps \
+            --filter "name=${containerName}"
+    """
+}
+
+
+def scanSonarqube(
+        String projectKey,
+        String projectDirectory
+) {
 
     withSonarQubeEnv('SonarQube') {
 
@@ -28,7 +189,7 @@ def scanSonarqube(String projectKey, String projectPath) {
 
             def scannerHome = tool 'SonarScanner'
 
-            dir(projectPath) {
+            dir(projectDirectory) {
 
                 sh """
                     set -e
@@ -49,115 +210,30 @@ def scanSonarqube(String projectKey, String projectPath) {
 }
 
 
-def waitForSonarQualityGate(int timeoutMinutes = 5) {
+def waitForSonarQualityGate(
+        int timeoutMinutes = 5
+) {
 
     timeout(
             time: timeoutMinutes,
             unit: 'MINUTES'
     ) {
 
-        def qg = waitForQualityGate()
+        def result = waitForQualityGate()
 
-        if (qg.status != 'OK') {
+        if (result.status != 'OK') {
+
             error(
-                    "Pipeline aborted: SonarQube Quality Gate failed with status ${qg.status}"
+                    "SonarQube Quality Gate failed: ${result.status}"
             )
         }
     }
 }
 
 
-def buildImage(
-        String imageName,
-        String dockerfile,
-        String buildContext
+def sendTelegram(
+        String message
 ) {
-
-    dir(buildContext) {
-
-        sh """
-            set -e
-
-            echo "======================================"
-            echo "Docker Build"
-            echo "Image: ${imageName}"
-            echo "Dockerfile: ${dockerfile}"
-            echo "Context: ${buildContext}"
-            echo "======================================"
-
-            docker build \
-                -f ${dockerfile} \
-                -t ${imageName} \
-                .
-        """
-    }
-}
-
-
-def pushImage(String imageName) {
-
-    withCredentials([
-            usernamePassword(
-                    credentialsId: 'docker-registry-creds',
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-            )
-    ]) {
-
-        sh """
-            set -e
-
-            echo "======================================"
-            echo "Docker Push"
-            echo "Image: ${imageName}"
-            echo "======================================"
-
-            echo "\${DOCKER_PASS}" | docker login \
-                -u "\${DOCKER_USER}" \
-                --password-stdin
-
-            docker push ${imageName}
-
-            docker logout || true
-        """
-    }
-}
-
-
-def deployContainer(
-        String image,
-        String containerName,
-        Map config = [:]
-) {
-
-    if (!config.port) {
-        error "Port mapping is required for ${containerName}"
-    }
-
-    sh """
-        set -e
-
-        echo "======================================"
-        echo "Deploying Container"
-        echo "Container: ${containerName}"
-        echo "Image: ${image}"
-        echo "Port: ${config.port}"
-        echo "======================================"
-
-        docker rm -f ${containerName} || true
-
-        docker run -d \
-            --name ${containerName} \
-            --restart unless-stopped \
-            -p ${config.port} \
-            ${image}
-
-        echo "Container deployed successfully."
-    """
-}
-
-
-def sendTelegram(String message) {
 
     withCredentials([
             string(
@@ -170,27 +246,19 @@ def sendTelegram(String message) {
             )
     ]) {
 
-        withEnv([
-                "TELEGRAM_MESSAGE=${message}"
-        ]) {
+        sh '''
+            set +x
 
-            sh '''
-                set -e
+            echo "Sending Telegram notification..."
 
-                echo "======================================"
-                echo "Sending Telegram notification..."
-                echo "======================================"
+            curl -sS \
+                -X POST \
+                "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+                --data-urlencode "text=${TELEGRAM_MESSAGE}"
 
-                curl -sS \
-                    -o /dev/null \
-                    -w "HTTP Status: %{http_code}\\n" \
-                    -X POST \
-                    "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                    --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-                    --data-urlencode "text=${TELEGRAM_MESSAGE}"
-
-                echo "Telegram notification sent."
-            '''
-        }
+            echo "Telegram notification sent."
+        ''',
+                returnStatus: false
     }
 }
