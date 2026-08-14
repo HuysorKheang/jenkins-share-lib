@@ -69,7 +69,7 @@ def sendTelegram(String message) {
 
     withCredentials([
             string(
-                    credentialsId: 'telegram-bot-token',
+                    credentialsId: 'telegram-bot',
                     variable: 'TELEGRAM_BOT_TOKEN'
             ),
             string(
