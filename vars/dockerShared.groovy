@@ -1,4 +1,3 @@
-
 def cloneRepo(String url, String branch, String credentialsId = null) {
     if (credentialsId) {
         git branch: branch, url: url, credentialsId: credentialsId
@@ -8,7 +7,7 @@ def cloneRepo(String url, String branch, String credentialsId = null) {
 }
 
 def scanSonarQube(String projectKey, String sonarHostUrl = 'http://sonarqube:9000',
-                   String scannerToolName = 'SonarScanner', String sonarServerName = 'SonarQube') {
+                  String scannerToolName = 'SonarScanner', String sonarServerName = 'SonarQube') {
     withSonarQubeEnv(sonarServerName) {
         withCredentials([string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN')]) {
             def scannerHome = tool scannerToolName
@@ -43,9 +42,9 @@ def buildDockerImage(String imageName, String imageTag, String dockerfileType, S
 
 def pushDockerImage(String imageName, String imageTag, String registryUrl) {
     withCredentials([usernamePassword(
-        credentialsId: 'docker-registry-creds',
-        usernameVariable: 'DOCKER_USER',
-        passwordVariable: 'DOCKER_PASS'
+            credentialsId: 'docker-registry-creds',
+            usernameVariable: 'DOCKER_USER',
+            passwordVariable: 'DOCKER_PASS'
     )]) {
         sh """
             echo "\${DOCKER_PASS}" | docker login ${registryUrl} -u "\${DOCKER_USER}" --password-stdin
@@ -67,15 +66,35 @@ def deployContainer(String containerName, String imageName, String imageTag, Str
 }
 
 def sendTelegram(String message) {
+
     withCredentials([
-        string(credentialsId: 'telegram-bot', variable: 'TELEGRAM_BOT_TOKEN'),
-        string(credentialsId: 'TELEGRAM_CHAT_ID', variable: 'TELEGRAM_CHAT_ID')
+            string(
+                    credentialsId: 'telegram-bot-token',
+                    variable: 'TELEGRAM_BOT_TOKEN'
+            ),
+            string(
+                    credentialsId: 'TELEGRAM_CHAT_ID',
+                    variable: 'TELEGRAM_CHAT_ID'
+            )
     ]) {
-        sh """
-            curl -s -X POST "https://api.telegram.org/bot\${TELEGRAM_BOT_TOKEN}/sendMessage" \\
-                -d chat_id="\${TELEGRAM_CHAT_ID}" \\
-                -d parse_mode=Markdown \\
-                --data-urlencode text="${message}"
-        """
+
+        withEnv([
+                "TELEGRAM_MESSAGE=${message}"
+        ]) {
+
+            sh '''
+                set -e
+
+                echo "Sending Telegram notification..."
+
+                curl -sS -X POST \
+                    "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                    --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+                    --data-urlencode "text=${TELEGRAM_MESSAGE}"
+
+                echo ""
+                echo "Telegram notification sent."
+            '''
+        }
     }
 }
